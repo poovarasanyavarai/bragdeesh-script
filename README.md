@@ -87,12 +87,9 @@ CREATE TABLE conversation_analytics (
 
 ```bash
 # Test with dry-run (no data inserted)
-python conversation_analytics.py --chatbot-ids YOUR_BOT_ID --dry-run
+python conversation_analytics.py --dry-run
 
 # Run and insert data
-python conversation_analytics.py --chatbot-ids YOUR_BOT_ID
-
-# Run for all chatbots
 python conversation_analytics.py
 ```
 
@@ -100,8 +97,9 @@ python conversation_analytics.py
 
 | Option | Description | Example |
 |--------|-------------|---------|
-| `--chatbot-ids` | Filter by specific chatbot ID(s) | `--chatbot-ids bot-1 bot-2` |
 | `--dry-run` | Run without inserting data (test mode) | `--dry-run` |
+
+**Note:** Chatbot IDs are configured statically in the script via the `CHATBOT_IDS` variable.
 
 ## 📊 Column Meanings - conversation_analytics Table
 
@@ -170,9 +168,6 @@ docker build -t conversation-analytics .
 
 # Run with environment variables
 docker run --env-file .env conversation-analytics
-
-# Run with specific chatbot
-docker run --env-file .env conversation-analytics python conversation_analytics.py --chatbot-ids YOUR_BOT_ID
 
 # Dry run
 docker run --env-file .env conversation-analytics python conversation_analytics.py --dry-run

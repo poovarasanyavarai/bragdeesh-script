@@ -2,7 +2,7 @@
 """Conversation Analytics Batch Process."""
 import os
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from dotenv import load_dotenv
 import psycopg2
@@ -13,6 +13,10 @@ from urllib.parse import urlparse
 CHATBOT_IDS = [
     "d66097dc-0bb4-4be9-93d0-d31046566d1c"
 ]
+
+# Timezone offset - Set your timezone offset here (default: +5:30 for Asia/Kolkata)
+# Format: '+HH:MM' or '-HH:MM'
+TIMEZONE_OFFSET = '+05:30'
 
 
 # Setup logging
@@ -51,7 +55,7 @@ def get_conversation_status(row):
         return 'WITH_BOT_RESPONSE'
 
 
-def fetch_analytics(conn, target_date, chatbot_ids):
+def fetch_analytics(conn, target_date, chatbot_ids, timezone_offset='+05:30'):
     """Fetch analytics data from database."""
     placeholders = ','.join(['%s'] * len(chatbot_ids))
     query = f"""
@@ -75,11 +79,12 @@ def fetch_analytics(conn, target_date, chatbot_ids):
             FROM chat_messages
             GROUP BY conversation_id
         ) mm ON mm.conversation_id = c.id
-        WHERE DATE(c.created_at) = %s AND c.chatbot_id IN ({placeholders})
+        WHERE DATE(c.created_at AT TIME ZONE 'UTC' AT TIME ZONE %s) = %s
+          AND c.chatbot_id IN ({placeholders})
     """
 
     with conn.cursor() as cursor:
-        cursor.execute(query, [target_date] + chatbot_ids)
+        cursor.execute(query, [timezone_offset, target_date] + chatbot_ids)
         return cursor.fetchall()
 
 
@@ -89,6 +94,7 @@ def insert_analytics(conn, analytics_data, target_date, dry_run=False):
         logger.warning("DRY RUN - Skipping insert")
         return
 
+    now_utc = datetime.now(timezone.utc)
     with conn.cursor() as cursor:
         for row in analytics_data:
             (conv_id, chatbot_id, via, total, first_user, first_bot, avg_lat, handling) = row
@@ -101,25 +107,15 @@ def insert_analytics(conn, analytics_data, target_date, dry_run=False):
                     average_response_latency_seconds, handling_time_seconds,
                     conversation_via, start_date, end_date, created_at, updated_at
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (conversation_id) DO UPDATE SET
-                    conversation_status = EXCLUDED.conversation_status,
-                    chatbot_id = EXCLUDED.chatbot_id,
-                    total_messages = EXCLUDED.total_messages,
-                    first_user_message_at = EXCLUDED.first_user_message_at,
-                    first_bot_response_at = EXCLUDED.first_bot_response_at,
-                    average_response_latency_seconds = EXCLUDED.average_response_latency_seconds,
-                    handling_time_seconds = EXCLUDED.handling_time_seconds,
-                    conversation_via = EXCLUDED.conversation_via,
-                    updated_at = NOW()
             """, (
                 conv_id, str(chatbot_id), status, total,
                 first_user, first_bot,
                 Decimal(str(round(avg_lat, 2))) if avg_lat else None,
                 Decimal(str(round(handling, 2))) if handling else None,
-                via, str(target_date), str(target_date), datetime.now(), datetime.now()
+                via, str(target_date), str(target_date), now_utc, now_utc
             ))
     conn.commit()
-    logger.info(f"Inserted/Updated {len(analytics_data)} records")
+    logger.info(f"Inserted {len(analytics_data)} records")
 
 
 def main(dry_run=False):
@@ -128,6 +124,7 @@ def main(dry_run=False):
 
     target_date = date.today()
     logger.info(f"Starting analytics for: {target_date}")
+    logger.info(f"Timezone offset: {TIMEZONE_OFFSET}")
     logger.info(f"Chatbot IDs: {CHATBOT_IDS}")
 
     conn = None
@@ -135,7 +132,7 @@ def main(dry_run=False):
         conn = get_connection()
         logger.info("Database connection established")
 
-        results = fetch_analytics(conn, target_date, CHATBOT_IDS)
+        results = fetch_analytics(conn, target_date, CHATBOT_IDS, TIMEZONE_OFFSET)
 
         # Count by status
         with_bot = sum(1 for r in results if get_conversation_status(r) == 'WITH_BOT_RESPONSE')
