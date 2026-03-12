@@ -8,11 +8,28 @@ from dotenv import load_dotenv
 import psycopg2
 from urllib.parse import urlparse
 
+import requests
 
+# url = "https://config-store.zagent.stage.yavar.ai/api/v1/configs/chatbots/"
+
+# headers = {
+#     "Content-Type": "application/json",
+#     "x-api-key": "891f41ee454479c49e458c4a7c50dd1e",
+#     "Cookie": "access_token=YOUR_ACCESS_TOKEN"
+# }
+
+# response = requests.get(url, headers=headers)
+# data = response.json()
+
+# # Extract all chatbot IDs
+# ids = [bot["id"] for bot in data["data"]]
+
+# print(ids)
 # Static Chatbot IDs - Add your chatbot IDs here
 CHATBOT_IDS = [
-    "d66097dc-0bb4-4be9-93d0-d31046566d1c"
+    "d66097dc-0bb4-4be9-93d0-d31046566d1c","d7cca6ba-2259-4df7-8bf4-674fa8aa194e"
 ]
+# CHATBOT_IDS = ids
 
 # Timezone offset - Set your timezone offset here (default: +5:30 for Asia/Kolkata)
 # Format: '+HH:MM' or '-HH:MM'

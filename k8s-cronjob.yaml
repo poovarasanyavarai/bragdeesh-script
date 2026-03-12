@@ -1,0 +1,63 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: z-agent-brg-script
+  namespace: default
+  labels:
+    app: z-agent-brg-script
+    component: analytics
+spec:
+  schedule: '*/10 * * * *'
+  concurrencyPolicy: Forbid
+  suspend: false
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app: z-agent-brg-script
+    spec:
+      activeDeadlineSeconds: 600
+      backoffLimit: 3
+      template:
+        metadata:
+          labels:
+            app: z-agent-brg-script
+        spec:
+          restartPolicy: OnFailure
+          terminationGracePeriodSeconds: 30
+          dnsPolicy: ClusterFirst
+          schedulerName: default-scheduler
+          containers:
+            - name: z-agent-brg-script
+              image: zinfradevv1.azurecr.io/z-agent-script:latest-poovii
+              imagePullPolicy: Always
+              env:
+                - name: CONFIG_STORE_BASE_URL
+                  value: https://config-store.zagent.stage.yavar.ai/
+                - name: CONFIG_STORE_API_KEY
+                  value: 891f41ee454479c49e458c4a7c50dd1e
+                - name: DATABASE_URL
+                  value: >-
+                    postgresql://z_agent_user:z_agent_password@postgresql-shared:5432/z_agent
+                - name: LOG_LEVEL
+                  value: INFO
+                - name: PYTHONPATH
+                  value: /app
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 256Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                runAsNonRoot: false
+                readOnlyRootFilesystem: false
+              terminationMessagePath: /dev/termination-log
+              terminationMessagePolicy: File
+          securityContext: {}
