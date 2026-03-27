@@ -7,19 +7,17 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import psycopg2
+import requests
 from dotenv import load_dotenv
 from urllib.parse import urlparse
 
 
 # ============ CONFIGURATION ============
-
-
-CHATBOT_IDS = [
-    "d66097dc-0bb4-4be9-93d0-d31046566d1c",
-    "d7cca6ba-2259-4df7-8bf4-674fa8aa194e",
-    "9b6e4fd9-f368-402e-8ba1-4085f0ef96d7"
+# Default account IDs (can be overridden via ACCOUNT_IDS env var as comma-separated)
+DEFAULT_ACCOUNT_IDS = [
+    "2d2c5ec3-1611-56cf-b000-05ff109bc4b1",
+    "86c3cb12-d1d1-5a0e-ab58-3230ec9fe11f"
 ]
-TIMEZONE_OFFSET = '+05:30'
 
 
 # ============ LOGGING ============
@@ -45,6 +43,44 @@ def get_connection():
         host=parsed.hostname,
         port=parsed.port
     )
+
+
+# ============ CONFIG STORE API ============
+def fetch_chatbot_ids_from_api(account_ids, base_url, api_key):
+    """Fetch chatbot IDs from config store API for given account IDs."""
+    if not base_url or not api_key:
+        raise ValueError("CONFIG_STORE_BASE_URL and CONFIG_STORE_API_KEY must be set in environment variables")
+
+    all_chatbot_ids = []
+    headers = {
+        'Content-Type': 'application/json',
+        'x-api-key': api_key
+    }
+
+    for account_id in account_ids:
+        try:
+            url = f"{base_url.rstrip('/')}/api/v1/configs/chatbots?account_id={account_id}"
+            logger.info(f"Fetching chatbots for account_id: {account_id}")
+            response = requests.get(url, headers=headers, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+
+            if data.get('success') and data.get('data'):
+                chatbot_ids = [bot['id'] for bot in data['data']]
+                all_chatbot_ids.extend(chatbot_ids)
+                logger.info(f"Fetched {len(chatbot_ids)} chatbot IDs for account {account_id}")
+            else:
+                logger.warning(f"No chatbots found for account_id: {account_id}")
+
+        except requests.RequestException as e:
+            logger.error(f"Failed to fetch chatbots for account {account_id}: {e}")
+            continue
+
+    if not all_chatbot_ids:
+        raise ValueError(f"No chatbot IDs fetched from API for accounts: {account_ids}")
+
+    logger.info(f"Total chatbot IDs fetched: {len(all_chatbot_ids)}")
+    return all_chatbot_ids
 
 
 # ============ QUERIES ============
@@ -97,13 +133,13 @@ def round_decimal(value):
     return Decimal(str(round(value, 2))) if value is not None else None
 
 
-def fetch_analytics(conn, target_date, chatbot_ids):
+def fetch_analytics(conn, target_date, chatbot_ids, timezone_offset):
     """Fetch analytics data from database."""
     placeholders = ','.join(['%s'] * len(chatbot_ids))
     query = FETCH_QUERY.format(placeholders=placeholders)
 
     with conn.cursor() as cursor:
-        cursor.execute(query, [TIMEZONE_OFFSET, target_date] + chatbot_ids)
+        cursor.execute(query, [timezone_offset, target_date] + chatbot_ids)
         return cursor.fetchall()
 
 
@@ -150,17 +186,33 @@ def main(dry_run=False):
     """Main execution function."""
     load_dotenv()
 
+    # Get configuration from environment variables
+    timezone_offset = os.getenv('TIMEZONE_OFFSET', '+05:30')
+    config_store_base_url = os.getenv('CONFIG_STORE_BASE_URL', '')
+    config_store_api_key = os.getenv('CONFIG_STORE_API_KEY', '')
+    account_ids_env = os.getenv('ACCOUNT_IDS', '')
+
+    # Parse account IDs from env or use defaults
+    account_ids = account_ids_env.split(',') if account_ids_env else DEFAULT_ACCOUNT_IDS
+    account_ids = [aid.strip() for aid in account_ids if aid.strip()]
+
+    # Fetch chatbot IDs dynamically from API
+    chatbot_ids = fetch_chatbot_ids_from_api(account_ids, config_store_base_url, config_store_api_key)
+
     target_date = date.today()
     logger.info(f"Starting analytics for: {target_date}")
-    logger.info(f"Timezone offset: {TIMEZONE_OFFSET}")
-    logger.info(f"Chatbot IDs: {CHATBOT_IDS}")
+    logger.info(f"Timezone offset: {timezone_offset}")
+    logger.info(f"Account IDs: {account_ids}")
+    logger.info(f"Chatbot IDs count: {len(chatbot_ids)}")
+    if logger.level <= logging.DEBUG:
+        logger.debug(f"Chatbot IDs: {chatbot_ids}")
 
     conn = None
     try:
         conn = get_connection()
         logger.info("Database connection established")
 
-        results = fetch_analytics(conn, target_date, CHATBOT_IDS)
+        results = fetch_analytics(conn, target_date, chatbot_ids, timezone_offset)
         log_summary(results)
 
         if results and not dry_run:
